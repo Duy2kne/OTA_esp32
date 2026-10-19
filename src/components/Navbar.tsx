@@ -13,7 +13,8 @@ import {
   Binary,
   Calculator,
   RefreshCw,
-  GitBranch,
+  FolderPlus,
+  BookOpen,
 } from 'lucide-react';
 import type { GitHubAuth } from '../lib/github-api.ts';
 
@@ -23,6 +24,7 @@ interface NavbarProps {
   auth: GitHubAuth | null;
   onOpenLoginModal: () => void;
   onLogout: () => void;
+  onOpenNewProject: () => void;
   onOpenGuide: () => void;
   onOpenInspector: () => void;
   onOpenSimulator: () => void;
@@ -36,6 +38,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   auth,
   onOpenLoginModal,
   onLogout,
+  onOpenNewProject,
   onOpenGuide,
   onOpenInspector,
   onOpenSimulator,
@@ -91,13 +94,23 @@ export const Navbar: React.FC<NavbarProps> = ({
               title="Kiến trúc hệ thống, quy tắc bảo mật và hướng dẫn cấu hình"
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-cyan-300 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition"
             >
-              <HelpCircle className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Kiến Trúc & HD</span>
+              <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Hướng Dẫn & Notes</span>
             </button>
           </div>
 
           {/* Actions & Mode switch */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Direct Add Project Button - ALWAYS VISIBLE */}
+            <button
+              onClick={onOpenNewProject}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-md shadow-cyan-950/60 transition"
+              title="Tạo dự án firmware mới"
+            >
+              <FolderPlus className="w-3.5 h-3.5" />
+              <span>+ Thêm Dự Án</span>
+            </button>
+
             <button
               onClick={onRefreshData}
               disabled={isLoading}
@@ -128,10 +141,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             ) : (
               <button
                 onClick={onOpenLoginModal}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-md shadow-cyan-950/60 transition"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 transition"
+                title="Kết nối GitHub Personal Access Token để đồng bộ kho mã nguồn"
               >
-                <Key className="w-3.5 h-3.5" />
-                <span>Quản Trị (PAT)</span>
+                <Key className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="hidden sm:inline">Đồng Bộ Git (PAT)</span>
               </button>
             )}
           </div>
