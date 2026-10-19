@@ -13,6 +13,7 @@ import {
   Cpu,
   Hash,
   FileCheck,
+  Info,
 } from 'lucide-react';
 import { calculateMd5, calculateSha256 } from '../lib/crypto-utils.ts';
 import { GitHubService, type GitHubAuth } from '../lib/github-api.ts';
@@ -28,8 +29,8 @@ interface UploadFirmwareModalProps {
   isOpen: boolean;
   onClose: () => void;
   project: ProjectSummary;
-  auth: GitHubAuth;
-  onSuccess: (commitSha: string, version: string) => void;
+  auth: GitHubAuth | null;
+  onSuccess: (newRelease: ReleaseConfig, commitSha?: string) => void;
 }
 
 export const UploadFirmwareModal: React.FC<UploadFirmwareModalProps> = ({
@@ -135,46 +136,49 @@ export const UploadFirmwareModal: React.FC<UploadFirmwareModalProps> = ({
     setIsCommitting(true);
     setError(null);
 
+    const releaseJson: ReleaseConfig = {
+      version: version.trim(),
+      channel,
+      notes: notes.trim() || `Phát hành phiên bản ${version} cho ${project.config.name}`,
+      rollout,
+      mandatory,
+      minVersion: minVersion.trim() || undefined,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      sha256,
+      md5,
+      size: binaryBytes.length,
+    };
+
     try {
-      const releaseJson: ReleaseConfig = {
-        version: version.trim(),
-        channel,
-        notes: notes.trim() || `Phát hành phiên bản ${version} cho ${project.config.name}`,
-        rollout,
-        mandatory,
-        minVersion: minVersion.trim() || undefined,
-        status: 'active',
-        createdAt: new Date().toISOString(),
-        sha256,
-        md5,
-        size: binaryBytes.length,
-      };
+      let commitSha: string | undefined = undefined;
 
-      const gitService = new GitHubService(auth);
+      if (auth) {
+        const gitService = new GitHubService(auth);
+        const binBase64 = uint8ArrayToBase64(binaryBytes);
+        const releaseJsonContent = JSON.stringify(releaseJson, null, 2);
+        const targetPathPrefix = `firmware/${project.slug}/releases/${version.trim()}`;
 
-      const binBase64 = uint8ArrayToBase64(binaryBytes);
-      const releaseJsonContent = JSON.stringify(releaseJson, null, 2);
+        // Single atomic commit for BOTH firmware.bin and release.json using Git Data API
+        const result = await gitService.commitFiles(
+          [
+            {
+              path: `${targetPathPrefix}/firmware.bin`,
+              content: binBase64,
+              encoding: 'base64',
+            },
+            {
+              path: `${targetPathPrefix}/release.json`,
+              content: releaseJsonContent,
+              encoding: 'utf-8',
+            },
+          ],
+          `release(ota): phát hành ${project.slug}@${version.trim()} (${channel})`
+        );
+        commitSha = result.commitSha;
+      }
 
-      const targetPathPrefix = `firmware/${project.slug}/releases/${version.trim()}`;
-
-      // Single atomic commit for BOTH firmware.bin and release.json using Git Data API
-      const result = await gitService.commitFiles(
-        [
-          {
-            path: `${targetPathPrefix}/firmware.bin`,
-            content: binBase64,
-            encoding: 'base64',
-          },
-          {
-            path: `${targetPathPrefix}/release.json`,
-            content: releaseJsonContent,
-            encoding: 'utf-8',
-          },
-        ],
-        `release(ota): phát hành ${project.slug}@${version.trim()} (${channel})`
-      );
-
-      onSuccess(result.commitSha, version.trim());
+      onSuccess(releaseJson, commitSha);
       onClose();
     } catch (err: any) {
       setError(err.message || 'Lỗi khi commit release lên GitHub repository');
@@ -207,8 +211,17 @@ export const UploadFirmwareModal: React.FC<UploadFirmwareModalProps> = ({
           </button>
         </div>
 
+        {!auth && (
+          <div className="mt-3 p-3 rounded-xl bg-cyan-950/30 border border-cyan-800/60 text-xs text-slate-300 flex items-start gap-2 flex-shrink-0">
+            <Info className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
+            <p className="text-[11px] text-slate-300">
+              Trình duyệt sẽ soi trực tiếp Header 0xE9, Chip ID và tính toán Checksum. Bản release sẽ được thêm vào Dashboard ngay lập tức.
+            </p>
+          </div>
+        )}
+
         {/* Content form */}
-        <form onSubmit={handleCommitRelease} className="flex-1 overflow-y-auto py-4 space-y-4 text-xs">
+        <form onSubmit={handleCommitRelease} className="flex-1 overflow-y-auto py-3 space-y-4 text-xs">
           {/* Drop area */}
           <div>
             <label className="block text-slate-300 font-semibold mb-1.5">File Binary (.bin):</label>
@@ -339,7 +352,7 @@ export const UploadFirmwareModal: React.FC<UploadFirmwareModalProps> = ({
                 className="w-4 h-4 rounded border-slate-700 bg-slate-950 accent-cyan-400"
               />
               <label htmlFor="mandatoryCheck" className="text-slate-300 cursor-pointer">
-                Bắt buộc cập nhật (Bỏ qua rollout %)
+                Bắt buộc cập nhật
               </label>
             </div>
             <div>
@@ -378,12 +391,12 @@ export const UploadFirmwareModal: React.FC<UploadFirmwareModalProps> = ({
               {isCommitting ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Đang Tạo Commit Duy Nhất Lên Git...</span>
+                  <span>Đang Xử Lý Firmware...</span>
                 </>
               ) : (
                 <>
                   <GitCommit className="w-3.5 h-3.5" />
-                  <span>Tạo Commit Phát Hành Firmware</span>
+                  <span>{auth ? 'Tạo Commit Lên Git' : 'Lưu Bản Release Ngay'}</span>
                 </>
               )}
             </button>
