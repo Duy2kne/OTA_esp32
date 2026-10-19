@@ -13,7 +13,7 @@ interface EditReleaseModalProps {
   onClose: () => void;
   projectSlug: string;
   release: ReleaseConfig;
-  auth: GitHubAuth;
+  auth: GitHubAuth | null;
   onSuccess: (updatedRelease: ReleaseConfig) => void;
 }
 
@@ -48,19 +48,21 @@ export const EditReleaseModal: React.FC<EditReleaseModalProps> = ({
         mandatory,
       };
 
-      const gitService = new GitHubService(auth);
-      const filePath = `firmware/${projectSlug}/releases/${release.version}/release.json`;
+      if (auth) {
+        const gitService = new GitHubService(auth);
+        const filePath = `firmware/${projectSlug}/releases/${release.version}/release.json`;
 
-      await gitService.commitFiles(
-        [
-          {
-            path: filePath,
-            content: JSON.stringify(updatedConfig, null, 2),
-            encoding: 'utf-8',
-          },
-        ],
-        `chore(ota): cập nhật release ${projectSlug}@${release.version} (Rollout: ${rollout}%, Trạng thái: ${status})`
-      );
+        await gitService.commitFiles(
+          [
+            {
+              path: filePath,
+              content: JSON.stringify(updatedConfig, null, 2),
+              encoding: 'utf-8',
+            },
+          ],
+          `chore(ota): cập nhật release ${projectSlug}@${release.version} (Rollout: ${rollout}%, Trạng thái: ${status})`
+        );
+      }
 
       onSuccess(updatedConfig);
       onClose();
