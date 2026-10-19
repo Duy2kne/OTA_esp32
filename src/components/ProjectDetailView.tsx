@@ -23,9 +23,11 @@ import {
   Cpu,
   Layers,
   Info,
+  Trash2,
 } from 'lucide-react';
 import type { ProjectSummary, ReleaseChannel, ReleaseConfig } from '../lib/ota-types.ts';
 import { CodeSnippetGenerator } from './CodeSnippetGenerator.tsx';
+import { FirmwareDevGuideCard } from './FirmwareDevGuideCard.tsx';
 
 interface ProjectDetailViewProps {
   project: ProjectSummary;
@@ -34,6 +36,8 @@ interface ProjectDetailViewProps {
   onOpenUpload: () => void;
   onOpenPins: () => void;
   onOpenEditRelease: (release: ReleaseConfig) => void;
+  onDeleteProject: () => void;
+  onDeleteRelease?: (version: string) => void;
   baseUrl: string;
 }
 
@@ -44,6 +48,8 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
   onOpenUpload,
   onOpenPins,
   onOpenEditRelease,
+  onDeleteProject,
+  onDeleteRelease,
   baseUrl,
 }) => {
   const [selectedChannel, setSelectedChannel] = useState<ReleaseChannel>('stable');
@@ -91,6 +97,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
           <button
             onClick={onBack}
             className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition mt-0.5 sm:mt-0"
+            title="Quay lại danh sách dự án"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
@@ -109,27 +116,40 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
         </div>
 
         {/* Action buttons */}
-        <div className="flex items-center gap-2">
-          {isAdmin && (
-            <>
-              <button
-                onClick={onOpenPins}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 transition"
-              >
-                <Pin className="w-3.5 h-3.5 text-amber-400" />
-                <span>Ghim Thiết Bị ({Object.keys(project.pins || {}).length})</span>
-              </button>
-              <button
-                onClick={onOpenUpload}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-950/60 transition"
-              >
-                <UploadCloud className="w-3.5 h-3.5" />
-                <span>Upload Firmware Mới</span>
-              </button>
-            </>
-          )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={onOpenPins}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 transition"
+          >
+            <Pin className="w-3.5 h-3.5 text-amber-400" />
+            <span>Ghim Thiết Bị ({Object.keys(project.pins || {}).length})</span>
+          </button>
+
+          <button
+            onClick={onOpenUpload}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-950/60 transition"
+          >
+            <UploadCloud className="w-3.5 h-3.5" />
+            <span>Upload Firmware Mới</span>
+          </button>
+
+          <button
+            onClick={onDeleteProject}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-800/80 transition"
+            title="Xóa dự án này"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Xóa Dự Án</span>
+          </button>
         </div>
       </div>
+
+      {/* ESSENTIAL FIRMWARE DEV NOTES / CHEATSHEET */}
+      <FirmwareDevGuideCard
+        project={project}
+        selectedChannel={selectedChannel}
+        baseUrl={cleanBase}
+      />
 
       {/* Manifest Endpoint & Channel Switcher */}
       <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
@@ -195,7 +215,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
           </div>
         ) : (
           <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800 text-xs text-slate-500 text-center">
-            Kênh <span className="uppercase font-semibold text-slate-400">{selectedChannel}</span> hiện chưa có bản phát hành active nào.
+            Kênh <span className="uppercase font-semibold text-slate-400">{selectedChannel}</span> hiện chưa có bản phát hành active nào. Bấm nút "Upload Firmware Mới" để thêm bản đầu tiên!
           </div>
         )}
       </div>
@@ -204,7 +224,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
       <div>
         <div className="flex items-center gap-2 mb-2">
           <FileCode className="w-4 h-4 text-cyan-400" />
-          <h3 className="text-sm font-bold text-white">Đoạn Mã Tích Hợp Cấu Hình Cho ESP32</h3>
+          <h3 className="text-sm font-bold text-white">Mã Tích Hợp Sẵn Dành Cho ESP32</h3>
         </div>
         <CodeSnippetGenerator
           projectSlug={project.slug}
@@ -229,8 +249,15 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
         </div>
 
         {channelReleases.length === 0 ? (
-          <div className="p-8 rounded-xl bg-slate-900 border border-slate-800 text-center text-xs text-slate-500">
-            Chưa có firmware nào được tải lên cho kênh này.
+          <div className="p-8 rounded-xl bg-slate-900 border border-slate-800 text-center text-xs text-slate-500 space-y-2">
+            <p>Chưa có firmware nào được tải lên cho kênh này.</p>
+            <button
+              onClick={onOpenUpload}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition shadow-md shadow-cyan-950/60"
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              <span>Tải Lên Firmware Ngay</span>
+            </button>
           </div>
         ) : (
           <div className="space-y-3">
@@ -275,13 +302,21 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                       <span className="font-bold text-cyan-300">{rel.rollout}%</span>
                     </div>
 
-                    {isAdmin && (
+                    <button
+                      onClick={() => onOpenEditRelease(rel)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition"
+                    >
+                      <Sliders className="w-3 h-3 text-cyan-400" />
+                      <span>Chỉnh Sửa</span>
+                    </button>
+
+                    {onDeleteRelease && (
                       <button
-                        onClick={() => onOpenEditRelease(rel)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition"
+                        onClick={() => onDeleteRelease(rel.version)}
+                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-950 transition"
+                        title="Xóa bản release này"
                       >
-                        <Sliders className="w-3 h-3 text-cyan-400" />
-                        <span>Chỉnh Sửa</span>
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
