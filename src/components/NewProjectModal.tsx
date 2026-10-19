@@ -4,18 +4,23 @@
  */
 
 import React, { useState } from 'react';
-import { X, FolderPlus, GitCommit, AlertTriangle } from 'lucide-react';
+import { X, FolderPlus, GitCommit, AlertTriangle, CheckCircle2, Shield, Info } from 'lucide-react';
 import { GitHubService, type GitHubAuth } from '../lib/github-api.ts';
-import type { EspChip, ProjectConfig, ReleaseChannel } from '../lib/ota-types.ts';
+import type { EspChip, ProjectConfig, ProjectSummary, ReleaseChannel } from '../lib/ota-types.ts';
 
 interface NewProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  auth: GitHubAuth;
-  onSuccess: (newSlug: string) => void;
+  auth: GitHubAuth | null;
+  onSuccess: (newProject: ProjectSummary) => void;
 }
 
-export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, auth, onSuccess }) => {
+export const NewProjectModal: React.FC<NewProjectModalProps> = ({
+  isOpen,
+  onClose,
+  auth,
+  onSuccess,
+}) => {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
@@ -26,18 +31,18 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
 
   if (!isOpen) return null;
 
-  const handleNameChange = (val: string) => {
-    setName(val);
-    if (!slug || slug === autoSlug(name)) {
-      setSlug(autoSlug(val));
-    }
-  };
-
   const autoSlug = (text: string) => {
     return text
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
+  };
+
+  const handleNameChange = (val: string) => {
+    setName(val);
+    if (!slug || slug === autoSlug(name)) {
+      setSlug(autoSlug(val));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -47,41 +52,62 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
       return;
     }
 
+    if (channels.length === 0) {
+      setError('Vui lòng chọn ít nhất 1 kênh phát hành (stable hoặc beta)');
+      return;
+    }
+
     setIsCommitting(true);
     setError(null);
 
+    const projectConfig: ProjectConfig = {
+      name: name.trim(),
+      description: description.trim(),
+      chip,
+      channels,
+      createdAt: new Date().toISOString(),
+    };
+
+    const newProjectSummary: ProjectSummary = {
+      slug: slug.trim(),
+      config: projectConfig,
+      releases: [],
+      pins: {},
+      latestByChannel: {
+        stable: null,
+        beta: null,
+      },
+    };
+
     try {
-      const projectConfig: ProjectConfig = {
-        name: name.trim(),
-        description: description.trim(),
-        chip,
-        channels,
-        createdAt: new Date().toISOString(),
-      };
+      if (auth) {
+        // Commit to GitHub repository using Git Data API
+        const gitService = new GitHubService(auth);
+        await gitService.commitFiles(
+          [
+            {
+              path: `firmware/${slug.trim()}/project.json`,
+              content: JSON.stringify(projectConfig, null, 2),
+              encoding: 'utf-8',
+            },
+            {
+              path: `firmware/${slug.trim()}/pins.json`,
+              content: JSON.stringify({}, null, 2),
+              encoding: 'utf-8',
+            },
+          ],
+          `chore(ota): tạo dự án mới '${slug.trim()}' (${chip})`
+        );
+      }
 
-      const gitService = new GitHubService(auth);
-
-      // Commit project.json and empty pins.json
-      await gitService.commitFiles(
-        [
-          {
-            path: `firmware/${slug.trim()}/project.json`,
-            content: JSON.stringify(projectConfig, null, 2),
-            encoding: 'utf-8',
-          },
-          {
-            path: `firmware/${slug.trim()}/pins.json`,
-            content: JSON.stringify({}, null, 2),
-            encoding: 'utf-8',
-          },
-        ],
-        `chore(ota): tạo dự án mới '${slug.trim()}' (${chip})`
-      );
-
-      onSuccess(slug.trim());
+      onSuccess(newProjectSummary);
       onClose();
+      // Reset form
+      setName('');
+      setSlug('');
+      setDescription('');
     } catch (err: any) {
-      setError(err.message || 'Lỗi khi commit tạo dự án lên GitHub');
+      setError(err.message || 'Lỗi khi tạo dự án lên GitHub');
     } finally {
       setIsCommitting(false);
     }
@@ -97,8 +123,10 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
               <FolderPlus className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Tạo Dự Án Firmware Mới</h3>
-              <p className="text-xs text-slate-400">Thêm dự án quản lý OTA vào cấu trúc repository</p>
+              <h3 className="text-base font-bold text-white">Thêm Dự Án Firmware Mới</h3>
+              <p className="text-xs text-slate-400">
+                {auth ? `Đồng bộ trực tiếp lên GitHub (${auth.owner}/${auth.repo})` : 'Tạo nhanh dự án trên Dashboard'}
+              </p>
             </div>
           </div>
           <button
@@ -109,14 +137,23 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
           </button>
         </div>
 
+        {!auth && (
+          <div className="mt-4 p-3 rounded-xl bg-cyan-950/30 border border-cyan-800/60 text-xs text-slate-300 flex items-start gap-2.5">
+            <Info className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              Bạn đang ở chế độ tạo trực tiếp. Dự án sẽ được lưu ngay vào Dashboard để bạn lấy đoạn mã C++, cấu hình và kiểm thử. Khi bạn kết nối GitHub PAT, hệ thống sẽ hỗ trợ đồng bộ lên repo.
+            </p>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="mt-4 space-y-3.5 text-xs">
           <div>
-            <label className="block font-semibold text-slate-300 mb-1">Tên dự án:</label>
+            <label className="block font-semibold text-slate-300 mb-1">Tên dự án của bạn:</label>
             <input
               type="text"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="vd: Đồng hồ thông minh Smart Watch"
+              placeholder="VD: Hệ Thống Đo Độ Ẩm Đất Nông Nghiệp"
               className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-cyan-500"
               required
             />
@@ -129,10 +166,11 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
                 type="text"
                 value={slug}
                 onChange={(e) => setSlug(autoSlug(e.target.value))}
-                placeholder="vd: smart-watch"
+                placeholder="vd: soil-moisture-node"
                 className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
                 required
               />
+              <span className="text-[10px] text-slate-500 mt-0.5 block">Dùng làm đường dẫn manifest và binary</span>
             </div>
             <div>
               <label className="block font-semibold text-slate-300 mb-1">Dòng Chip mục tiêu:</label>
@@ -142,7 +180,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
                 className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-cyan-500"
               >
                 <option value="esp32c3">ESP32-C3 (RISC-V, WiFi+BLE)</option>
-                <option value="esp32s3">ESP32-S3 (Xtensa Dual-core, AI/Vector)</option>
+                <option value="esp32s3">ESP32-S3 (Xtensa Dual-core, AI)</option>
                 <option value="esp32">ESP32 (Classic Xtensa Dual-core)</option>
               </select>
             </div>
@@ -154,7 +192,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Mô tả chức năng thiết bị, cảm biến sử dụng..."
+              placeholder="Mô tả chức năng thiết bị, cảm biến sử dụng, địa điểm lắp đặt..."
               className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-cyan-500 resize-none"
             />
           </div>
@@ -172,7 +210,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
                   }}
                   className="rounded border-slate-700 bg-slate-950 accent-cyan-400"
                 />
-                <span className="text-slate-300 font-mono">stable</span>
+                <span className="text-slate-300 font-mono">stable (chính thức)</span>
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input
@@ -184,7 +222,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
                   }}
                   className="rounded border-slate-700 bg-slate-950 accent-cyan-400"
                 />
-                <span className="text-slate-300 font-mono">beta</span>
+                <span className="text-slate-300 font-mono">beta (thử nghiệm)</span>
               </label>
             </div>
           </div>
@@ -196,7 +234,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
             </div>
           )}
 
-          <div className="mt-5 flex items-center justify-end gap-2 pt-2">
+          <div className="mt-5 flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
             <button
               type="button"
               onClick={onClose}
@@ -213,12 +251,12 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
               {isCommitting ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Đang Commit Tạo Dự Án...</span>
+                  <span>Đang Tạo Dự Án...</span>
                 </>
               ) : (
                 <>
-                  <GitCommit className="w-3.5 h-3.5" />
-                  <span>Tạo Dự Án Trên Git</span>
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  <span>Tạo Dự Án Ngay</span>
                 </>
               )}
             </button>
