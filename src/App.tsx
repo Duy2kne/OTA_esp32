@@ -17,6 +17,9 @@ import {
   ExternalLink,
   Github,
   Key,
+  Trash2,
+  Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import type { OtaIndex, ProjectSummary, ReleaseConfig, DevicePins, EspChip } from './lib/ota-types.ts';
 import type { GitHubAuth } from './lib/github-api.ts';
@@ -28,10 +31,14 @@ import { UploadFirmwareModal } from './components/UploadFirmwareModal.tsx';
 import { NewProjectModal } from './components/NewProjectModal.tsx';
 import { EditReleaseModal } from './components/EditReleaseModal.tsx';
 import { EditPinsModal } from './components/EditPinsModal.tsx';
+import { DeleteProjectModal } from './components/DeleteProjectModal.tsx';
 import { WorkflowTrackerModal } from './components/WorkflowTrackerModal.tsx';
 import { BinInspectorModal } from './components/BinInspectorModal.tsx';
 import { RolloutSimulatorModal } from './components/RolloutSimulatorModal.tsx';
 import { ArchitectureGuideModal } from './components/ArchitectureGuideModal.tsx';
+
+const STORAGE_CUSTOM_PROJECTS = 'esp32_ota_custom_projects_v2';
+const STORAGE_DELETED_SLUGS = 'esp32_ota_deleted_slugs_v2';
 
 export default function App() {
   const [otaData, setOtaData] = useState<OtaIndex | null>(null);
@@ -60,6 +67,7 @@ export default function App() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isPinsOpen, setIsPinsOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -84,18 +92,46 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     try {
-      // Try relative ota/index.json first
-      const res = await fetch('./ota/index.json', { cache: 'no-cache' });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: Không thể tải ./ota/index.json`);
+      let baseProjects: ProjectSummary[] = [];
+
+      try {
+        const res = await fetch('./ota/index.json', { cache: 'no-cache' });
+        if (res.ok) {
+          const data: OtaIndex = await res.json();
+          baseProjects = data.projects || [];
+        }
+      } catch (e) {
+        console.warn('Không tải được ./ota/index.json, dùng dữ liệu lưu trữ trình duyệt');
       }
-      const data: OtaIndex = await res.json();
-      setOtaData(data);
-    } catch (err: any) {
-      console.warn('Lỗi tải manifest ota/index.json:', err);
-      setError(
-        'Chưa tải được manifest tĩnh từ ota/index.json. Hãy chắc chắn lệnh npm run build-ota đã được chạy.'
+
+      // Read deleted slugs from localStorage
+      const deletedSlugs: string[] = JSON.parse(localStorage.getItem(STORAGE_DELETED_SLUGS) || '[]');
+      // Filter out deleted projects
+      let merged = baseProjects.filter((p) => !deletedSlugs.includes(p.slug));
+
+      // Merge with custom added projects from localStorage
+      const customProjects: ProjectSummary[] = JSON.parse(
+        localStorage.getItem(STORAGE_CUSTOM_PROJECTS) || '[]'
       );
+
+      for (const cp of customProjects) {
+        if (deletedSlugs.includes(cp.slug)) continue;
+        const existingIdx = merged.findIndex((p) => p.slug === cp.slug);
+        if (existingIdx !== -1) {
+          merged[existingIdx] = cp; // override with latest edits
+        } else {
+          merged.push(cp);
+        }
+      }
+
+      setOtaData({
+        generatedAt: new Date().toISOString(),
+        version: '1.0.0',
+        projects: merged,
+      });
+    } catch (err: any) {
+      console.warn('Lỗi tải manifest:', err);
+      setError('Đang sử dụng dữ liệu lưu trữ trình duyệt.');
     } finally {
       setIsLoading(false);
     }
@@ -104,6 +140,10 @@ export default function App() {
   useEffect(() => {
     fetchOtaIndex();
   }, []);
+
+  const saveCustomProjectsToStorage = (projects: ProjectSummary[]) => {
+    localStorage.setItem(STORAGE_CUSTOM_PROJECTS, JSON.stringify(projects));
+  };
 
   const handleLoginSuccess = (newAuth: GitHubAuth) => {
     setAuth(newAuth);
@@ -115,41 +155,119 @@ export default function App() {
     localStorage.removeItem('esp32_ota_auth');
   };
 
-  const handleUploadSuccess = (commitSha: string) => {
-    setLastCommitSha(commitSha);
-    setIsWorkflowOpen(true);
-    // Refresh data after small delay
-    setTimeout(fetchOtaIndex, 3000);
+  // Add Project
+  const handleNewProjectSuccess = (newProject: ProjectSummary) => {
+    if (!otaData) return;
+    const updatedProjects = [newProject, ...otaData.projects.filter((p) => p.slug !== newProject.slug)];
+    setOtaData({
+      ...otaData,
+      projects: updatedProjects,
+    });
+    saveCustomProjectsToStorage(updatedProjects);
+    setSelectedSlug(newProject.slug);
+
+    if (auth) {
+      setIsWorkflowOpen(true);
+    }
   };
 
-  const handleNewProjectSuccess = (newSlug: string) => {
-    setSelectedSlug(newSlug);
-    setIsWorkflowOpen(true);
-    setTimeout(fetchOtaIndex, 3000);
+  // Delete Project
+  const handleDeleteProject = (slugToDelete: string) => {
+    if (!otaData) return;
+    const deletedSlugs: string[] = JSON.parse(localStorage.getItem(STORAGE_DELETED_SLUGS) || '[]');
+    if (!deletedSlugs.includes(slugToDelete)) {
+      deletedSlugs.push(slugToDelete);
+      localStorage.setItem(STORAGE_DELETED_SLUGS, JSON.stringify(deletedSlugs));
+    }
+
+    const updatedProjects = otaData.projects.filter((p) => p.slug !== slugToDelete);
+    setOtaData({
+      ...otaData,
+      projects: updatedProjects,
+    });
+    saveCustomProjectsToStorage(updatedProjects);
+    setSelectedSlug(null);
+  };
+
+  // Quick Action: Delete the 2 sample projects in 1 click
+  const handleDeleteSampleProjects = () => {
+    const sampleSlugs = ['smart-meter-c3', 'weather-station-s3'];
+    sampleSlugs.forEach((slug) => handleDeleteProject(slug));
+  };
+
+  // Upload release
+  const handleUploadSuccess = (newRelease: ReleaseConfig, commitSha?: string) => {
+    if (!otaData || !selectedSlug) return;
+    const updatedProjects = otaData.projects.map((p) => {
+      if (p.slug !== selectedSlug) return p;
+      const updatedReleases = [newRelease, ...p.releases.filter((r) => r.version !== newRelease.version)];
+      return {
+        ...p,
+        releases: updatedReleases,
+        latestByChannel: {
+          ...p.latestByChannel,
+          [newRelease.channel]: newRelease,
+        },
+      };
+    });
+
+    setOtaData({
+      ...otaData,
+      projects: updatedProjects,
+    });
+    saveCustomProjectsToStorage(updatedProjects);
+
+    if (commitSha) {
+      setLastCommitSha(commitSha);
+      setIsWorkflowOpen(true);
+    }
   };
 
   const handleReleaseUpdated = (updatedRelease: ReleaseConfig) => {
     if (!otaData || !selectedSlug) return;
+    const updatedProjects = otaData.projects.map((p) => {
+      if (p.slug !== selectedSlug) return p;
+      return {
+        ...p,
+        releases: p.releases.map((r) => (r.version === updatedRelease.version ? updatedRelease : r)),
+      };
+    });
     setOtaData({
       ...otaData,
-      projects: otaData.projects.map((p) => {
-        if (p.slug !== selectedSlug) return p;
-        return {
-          ...p,
-          releases: p.releases.map((r) => (r.version === updatedRelease.version ? updatedRelease : r)),
-        };
-      }),
+      projects: updatedProjects,
     });
-    setIsWorkflowOpen(true);
+    saveCustomProjectsToStorage(updatedProjects);
+    if (auth) setIsWorkflowOpen(true);
+  };
+
+  const handleDeleteRelease = (versionToDelete: string) => {
+    if (!otaData || !selectedSlug) return;
+    if (!confirm(`Bạn có chắc chắn muốn xóa bản release v${versionToDelete}?`)) return;
+
+    const updatedProjects = otaData.projects.map((p) => {
+      if (p.slug !== selectedSlug) return p;
+      const filtered = p.releases.filter((r) => r.version !== versionToDelete);
+      return {
+        ...p,
+        releases: filtered,
+      };
+    });
+    setOtaData({
+      ...otaData,
+      projects: updatedProjects,
+    });
+    saveCustomProjectsToStorage(updatedProjects);
   };
 
   const handlePinsUpdated = (updatedPins: DevicePins) => {
     if (!otaData || !selectedSlug) return;
+    const updatedProjects = otaData.projects.map((p) => (p.slug === selectedSlug ? { ...p, pins: updatedPins } : p));
     setOtaData({
       ...otaData,
-      projects: otaData.projects.map((p) => (p.slug === selectedSlug ? { ...p, pins: updatedPins } : p)),
+      projects: updatedProjects,
     });
-    setIsWorkflowOpen(true);
+    saveCustomProjectsToStorage(updatedProjects);
+    if (auth) setIsWorkflowOpen(true);
   };
 
   const selectedProject = otaData?.projects.find((p) => p.slug === selectedSlug) || null;
@@ -169,6 +287,10 @@ export default function App() {
   const totalReleases = otaData?.projects.reduce((acc, p) => acc + p.releases.length, 0) || 0;
   const totalPins = otaData?.projects.reduce((acc, p) => acc + Object.keys(p.pins || {}).length, 0) || 0;
 
+  const hasSampleProjects = (otaData?.projects || []).some(
+    (p) => p.slug === 'smart-meter-c3' || p.slug === 'weather-station-s3'
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Navbar */}
@@ -181,6 +303,7 @@ export default function App() {
         auth={auth}
         onOpenLoginModal={() => setIsLoginOpen(true)}
         onLogout={handleLogout}
+        onOpenNewProject={() => setIsNewProjectOpen(true)}
         onOpenGuide={() => setIsGuideOpen(true)}
         onOpenInspector={() => setIsInspectorOpen(true)}
         onOpenSimulator={() => setIsSimulatorOpen(true)}
@@ -199,6 +322,8 @@ export default function App() {
             onOpenUpload={() => setIsUploadOpen(true)}
             onOpenPins={() => setIsPinsOpen(true)}
             onOpenEditRelease={(rel) => setActiveReleaseForEdit(rel)}
+            onDeleteProject={() => setIsDeleteOpen(true)}
+            onDeleteRelease={handleDeleteRelease}
             baseUrl={baseUrl}
           />
         ) : (
@@ -208,7 +333,7 @@ export default function App() {
             <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900 to-cyan-950/30 border border-slate-800 p-6 sm:p-7 relative overflow-hidden shadow-2xl">
               <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                 <div>
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-800 font-bold uppercase tracking-wider">
                       Zero-Server OTA Architecture
                     </span>
@@ -220,11 +345,11 @@ export default function App() {
                     Trung Tâm Cập Nhật Firmware Cho ESP32
                   </h1>
                   <p className="mt-1 text-xs sm:text-sm text-slate-400 max-w-2xl leading-relaxed">
-                    Hệ thống OTA không cần backend, phục vụ manifest tĩnh siêu tốc qua GitHub Pages CDN với kiểm định chặt chẽ magic byte <code className="text-cyan-400 font-mono">0xE9</code>, chip ID, SHA-256 và cơ chế tự động rollback bảo vệ thiết bị.
+                    Hệ thống OTA không cần backend, phục vụ manifest tĩnh qua GitHub Pages CDN với kiểm định chặt chẽ magic byte <code className="text-cyan-400 font-mono">0xE9</code>, chip ID, SHA-256 và cơ chế tự động rollback.
                   </p>
                 </div>
 
-                {/* Quick stats & new project trigger */}
+                {/* Always-visible Add Project and Quick Clear Sample buttons */}
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex items-center gap-4 bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 font-mono text-xs">
                     <div>
@@ -243,37 +368,29 @@ export default function App() {
                     </div>
                   </div>
 
-                  {auth && (
+                  {/* PROMINENT ADD PROJECT BUTTON - ALWAYS ACCESSIBLE */}
+                  <button
+                    onClick={() => setIsNewProjectOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs transition shadow-lg shadow-cyan-950/60"
+                  >
+                    <FolderPlus className="w-4 h-4" />
+                    <span>+ Thêm Dự Án Của Bạn</span>
+                  </button>
+
+                  {/* Clear Sample Projects Button if samples exist */}
+                  {hasSampleProjects && (
                     <button
-                      onClick={() => setIsNewProjectOpen(true)}
-                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition shadow-lg shadow-cyan-950/60"
+                      onClick={handleDeleteSampleProjects}
+                      className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-950 hover:bg-rose-950/50 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-800/80 text-xs transition"
+                      title="Xóa 2 dự án mẫu để làm việc với dự án thực tế của bạn"
                     >
-                      <FolderPlus className="w-4 h-4" />
-                      <span>Tạo Dự Án Mới</span>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Xóa 2 Dự Án Mẫu</span>
                     </button>
                   )}
                 </div>
               </div>
             </div>
-
-            {/* Error banner if manifest fetch fails */}
-            {error && (
-              <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-800 text-rose-300 text-xs flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="font-semibold block">Thông báo đồng bộ dữ liệu tĩnh:</strong>
-                    <span>{error}</span>
-                  </div>
-                </div>
-                <button
-                  onClick={fetchOtaIndex}
-                  className="px-3 py-1 rounded bg-rose-900/60 hover:bg-rose-800 text-rose-200 text-xs font-semibold whitespace-nowrap transition"
-                >
-                  Thử lại
-                </button>
-              </div>
-            )}
 
             {/* Search & Chip Filter Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -312,12 +429,21 @@ export default function App() {
 
             {/* Projects Grid */}
             {filteredProjects.length === 0 ? (
-              <div className="p-12 text-center rounded-2xl bg-slate-900/40 border border-slate-800/80">
-                <Cpu className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-                <h3 className="text-sm font-bold text-white mb-1">Không tìm thấy dự án phù hợp</h3>
-                <p className="text-xs text-slate-400">
-                  Hãy thử đổi từ khóa tìm kiếm hoặc bấm nút "Tạo Dự Án Mới" để thêm firmware đầu tiên.
-                </p>
+              <div className="p-12 text-center rounded-2xl bg-slate-900/40 border border-slate-800/80 space-y-4">
+                <Cpu className="w-12 h-12 text-slate-600 mx-auto" />
+                <div>
+                  <h3 className="text-base font-bold text-white mb-1">Chưa có dự án nào</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Bạn chưa có dự án nào trong danh sách. Hãy nhấn nút dưới đây để tạo dự án firmware thực tế đầu tiên của bạn!
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsNewProjectOpen(true)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs transition shadow-lg shadow-cyan-950/60"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                  <span>+ Thêm Dự Án Ngay Bây Giờ</span>
+                </button>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -366,7 +492,14 @@ export default function App() {
         currentAuth={auth}
       />
 
-      {auth && selectedProject && (
+      <NewProjectModal
+        isOpen={isNewProjectOpen}
+        onClose={() => setIsNewProjectOpen(false)}
+        auth={auth}
+        onSuccess={handleNewProjectSuccess}
+      />
+
+      {selectedProject && (
         <UploadFirmwareModal
           isOpen={isUploadOpen}
           onClose={() => setIsUploadOpen(false)}
@@ -376,16 +509,7 @@ export default function App() {
         />
       )}
 
-      {auth && (
-        <NewProjectModal
-          isOpen={isNewProjectOpen}
-          onClose={() => setIsNewProjectOpen(false)}
-          auth={auth}
-          onSuccess={handleNewProjectSuccess}
-        />
-      )}
-
-      {auth && selectedProject && (
+      {selectedProject && (
         <EditPinsModal
           isOpen={isPinsOpen}
           onClose={() => setIsPinsOpen(false)}
@@ -395,7 +519,7 @@ export default function App() {
         />
       )}
 
-      {auth && selectedProject && activeReleaseForEdit && (
+      {selectedProject && activeReleaseForEdit && (
         <EditReleaseModal
           isOpen={!!activeReleaseForEdit}
           onClose={() => setActiveReleaseForEdit(null)}
@@ -403,6 +527,16 @@ export default function App() {
           release={activeReleaseForEdit}
           auth={auth}
           onSuccess={handleReleaseUpdated}
+        />
+      )}
+
+      {selectedProject && (
+        <DeleteProjectModal
+          isOpen={isDeleteOpen}
+          onClose={() => setIsDeleteOpen(false)}
+          project={selectedProject}
+          auth={auth}
+          onSuccess={handleDeleteProject}
         />
       )}
 
