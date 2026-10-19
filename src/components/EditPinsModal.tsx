@@ -12,7 +12,7 @@ interface EditPinsModalProps {
   isOpen: boolean;
   onClose: () => void;
   project: ProjectSummary;
-  auth: GitHubAuth;
+  auth: GitHubAuth | null;
   onSuccess: (updatedPins: DevicePins) => void;
 }
 
@@ -52,24 +52,26 @@ export const EditPinsModal: React.FC<EditPinsModalProps> = ({ isOpen, onClose, p
     setError(null);
 
     try {
-      const gitService = new GitHubService(auth);
-      const filePath = `firmware/${project.slug}/pins.json`;
+      if (auth) {
+        const gitService = new GitHubService(auth);
+        const filePath = `firmware/${project.slug}/pins.json`;
 
-      await gitService.commitFiles(
-        [
-          {
-            path: filePath,
-            content: JSON.stringify(pins, null, 2),
-            encoding: 'utf-8',
-          },
-        ],
-        `chore(ota): cập nhật thiết bị ghim (pins) cho ${project.slug} (${Object.keys(pins).length} devices)`
-      );
+        await gitService.commitFiles(
+          [
+            {
+              path: filePath,
+              content: JSON.stringify(pins, null, 2),
+              encoding: 'utf-8',
+            },
+          ],
+          `chore(ota): cập nhật thiết bị ghim (pins) cho ${project.slug} (${Object.keys(pins).length} devices)`
+        );
+      }
 
       onSuccess(pins);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Lỗi khi lưu cấu hình pins lên Git');
+      setError(err.message || 'Lỗi khi lưu cấu hình pins');
     } finally {
       setIsCommitting(false);
     }
