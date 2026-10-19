@@ -1,0 +1,139 @@
+name: Build Firmware & Publish to OTA Hub
+
+on:
+  push:
+    tags:
+      - 'v*.*.*' # Trigger when creating release tags e.g. v1.2.0, v1.2.1-beta.1
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag phiên bản (vd: v1.2.0)'
+        required: true
+        default: 'v1.2.0'
+      channel:
+        description: 'Kênh phát hành (stable hoặc beta)'
+        required: true
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
+      rollout:
+        description: 'Tỉ lệ rollout ban đầu (%)'
+        required: true
+        default: '20'
+
+env:
+  PROJECT_SLUG: 'smart-meter-c3' # Thay bằng project slug tương ứng trong repo OTA
+  OTA_REPO: 'your-username/esp32-ota-hub' # Thay bằng repo OTA chính của bạn
+
+jobs:
+  build-and-push-ota:
+    name: Build Binary & Commit to OTA Repo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Firmware Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Parse Version
+        id: vars
+        run: |
+          RAW_TAG="${{ github.ref_name || inputs.tag }}"
+          CLEAN_VERSION="${RAW_TAG#v}"
+          echo "version=${CLEAN_VERSION}" >> $GITHUB_OUTPUT
+          
+          # Detect channel
+          if [[ "${CLEAN_VERSION}" == *"-"* ]]; then
+            DETECTED_CHANNEL="beta"
+          else
+            DETECTED_CHANNEL="${{ inputs.channel || 'stable' }}"
+          fi
+          echo "channel=${DETECTED_CHANNEL}" >> $GITHUB_OUTPUT
+
+      - name: Compile Firmware with PlatformIO
+        run: |
+          pio run -e esp32c3
+
+      - name: Locate & Verify Firmware Binary
+        id: bin_info
+        run: |
+          BIN_PATH=".pio/build/esp32c3/firmware.bin"
+          if [ ! -f "$BIN_PATH" ]; then
+            echo "❌ Không tìm thấy file binary tại $BIN_PATH"
+            exit 1
+          fi
+
+          FILE_SIZE=$(wc -c < "$BIN_PATH" | tr -d ' ')
+          SHA256_HASH=$(sha256sum "$BIN_PATH" | awk '{print $1}')
+          MD5_HASH=$(md5sum "$BIN_PATH" | awk '{print $1}')
+
+          # Check ESP magic byte (0xE9)
+          FIRST_BYTE=$(xxd -p -l 1 "$BIN_PATH")
+          if [ "$FIRST_BYTE" != "e9" ]; then
+            echo "❌ Magic byte không hợp lệ: 0x$FIRST_BYTE (yêu cầu 0xe9)"
+            exit 1
+          fi
+
+          echo "size=$FILE_SIZE" >> $GITHUB_OUTPUT
+          echo "sha256=$SHA256_HASH" >> $GITHUB_OUTPUT
+          echo "md5=$MD5_HASH" >> $GITHUB_OUTPUT
+          echo "bin_path=$BIN_PATH" >> $GITHUB_OUTPUT
+
+          echo "✅ Binary verified: Size=${FILE_SIZE}B, SHA256=${SHA256_HASH}"
+
+      - name: Checkout OTA Central Hub Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.OTA_REPO }}
+          token: ${{ secrets.OTA_REPO_TOKEN }}
+          path: ota-hub-repo
+
+      - name: Prepare Release in OTA Hub
+        run: |
+          VERSION="${{ steps.vars.outputs.version }}"
+          CHANNEL="${{ steps.vars.outputs.channel }}"
+          ROLLOUT="${{ inputs.rollout || '100' }}"
+          TARGET_DIR="ota-hub-repo/firmware/${{ env.PROJECT_SLUG }}/releases/${VERSION}"
+
+          mkdir -p "$TARGET_DIR"
+
+          # Copy binary
+          cp "${{ steps.bin_info.outputs.bin_path }}" "${TARGET_DIR}/firmware.bin"
+
+          # Create release.json
+          cat <<EOF > "${TARGET_DIR}/release.json"
+          {
+            "version": "${VERSION}",
+            "channel": "${CHANNEL}",
+            "notes": "Tự động phát hành từ commit ${{ github.sha }} tại repo ${{ github.repository }}",
+            "rollout": ${ROLLOUT},
+            "mandatory": false,
+            "status": "active",
+            "createdAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "sha256": "${{ steps.bin_info.outputs.sha256 }}",
+            "md5": "${{ steps.bin_info.outputs.md5 }}",
+            "size": ${{ steps.bin_info.outputs.size }}
+          }
+          EOF
+
+          echo "✅ Đã tạo cấu trúc release tại ${TARGET_DIR}"
+
+      - name: Commit and Push to OTA Hub
+        working-directory: ota-hub-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "firmware/${{ env.PROJECT_SLUG }}/releases/${{ steps.vars.outputs.version }}"
+          git commit -m "chore(ota): phát hành phiên bản ${{ env.PROJECT_SLUG }}@${{ steps.vars.outputs.version }}"
+          git push origin main

@@ -1,0 +1,6 @@
+{
+  "name": "ESP32 OTA Multi-Project Hub",
+  "description": "Hệ thống quản lý và cập nhật firmware OTA đa dự án cho ESP32 chạy 100% trên GitHub Pages & GitHub Actions",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

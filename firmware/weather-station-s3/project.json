@@ -1,0 +1,9 @@
+{
+  "name": "Trạm Quan Trắc Không Khí S3",
+  "description": "Cảm biến PM2.5, CO2, nhiệt độ độ ẩm với màn hình e-Paper và pin năng lượng",
+  "chip": "esp32s3",
+  "channels": [
+    "stable",
+    "beta"
+  ]
+}

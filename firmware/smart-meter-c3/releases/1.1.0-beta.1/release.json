@@ -1,0 +1,12 @@
+{
+  "version": "1.1.0-beta.1",
+  "channel": "beta",
+  "notes": "Thử nghiệm giao thức MQTT over TLS và tính năng bù sai số nhiệt độ",
+  "rollout": 50,
+  "mandatory": false,
+  "status": "active",
+  "createdAt": "2026-10-19T03:15:40.390Z",
+  "sha256": "2cbc38877810875b7f2a66b7b9f235635c04609000e3c7cf2eaa1eef83f24757",
+  "md5": "587ade5beab05187ab2f2e9c13da7e3e",
+  "size": 259
+}

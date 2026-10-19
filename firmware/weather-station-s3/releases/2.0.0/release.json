@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "channel": "stable",
+  "notes": "Nâng cấp giao diện hiển thị E-Paper, tối ưu hóa deep sleep giảm 40% pin",
+  "rollout": 100,
+  "mandatory": true,
+  "minVersion": "1.0.0",
+  "status": "active",
+  "createdAt": "2026-10-19T03:15:40.392Z",
+  "sha256": "d2c9e2617022858855419d54dd18203174193cc41fdf06aeb8aa1127caa60699",
+  "md5": "c02692f1e1f45364ad94e8ef8483e36c",
+  "size": 258
+}

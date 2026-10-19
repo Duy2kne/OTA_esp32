@@ -1,0 +1,9 @@
+{
+  "name": "Đồng Hồ Đo Năng Lượng Smart Meter",
+  "description": "Thiết bị đo công suất, dòng áp kWh truyền dữ liệu qua MQTT và WiFi",
+  "chip": "esp32c3",
+  "channels": [
+    "stable",
+    "beta"
+  ]
+}

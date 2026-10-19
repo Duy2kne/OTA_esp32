@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "channel": "stable",
+  "notes": "Bản phát hành đầu tiên: giám sát điện áp, dòng điện và cos phi",
+  "rollout": 100,
+  "mandatory": false,
+  "status": "active",
+  "createdAt": "2026-10-19T03:15:40.386Z",
+  "sha256": "7b8ccabb83d23038b24e4ef45f8124ccb050ea72b790be6d533877f204b4c7d8",
+  "md5": "b54afaab8fbedb5459782697d7c569c5",
+  "size": 254
+}
