@@ -1,0 +1,12 @@
+{
+  "version": "2.0.2",
+  "channel": "stable",
+  "notes": "Phát hành phiên bản 2.0.2 cho CITO-UF",
+  "rollout": 100,
+  "mandatory": true,
+  "status": "active",
+  "createdAt": "2026-10-20T10:54:16.490Z",
+  "sha256": "07ed4f48027f6fa859b8fe61208de86afe34a172c0a6ce8a35c8c2afa8bfc78d",
+  "md5": "68b6d7c9e4744586eb3ff2351a0f8247",
+  "size": 1403984
+}
