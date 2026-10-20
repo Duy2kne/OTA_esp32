@@ -1,0 +1,10 @@
+{
+  "name": "CITO-UF",
+  "description": "CITO UF",
+  "chip": "esp32",
+  "channels": [
+    "stable",
+    "beta"
+  ],
+  "createdAt": "2026-10-20T10:17:10.650Z"
+}
